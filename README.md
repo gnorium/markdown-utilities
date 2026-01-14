@@ -83,4 +83,5 @@ Contributions welcome! Please open an issue or submit a pull request.
 - [web-builders](https://github.com/gnorium/web-builders) - HTML, CSS, JS, and SVG DSL builders
 - [web-components](https://github.com/gnorium/web-components) - Reusable UI components for web applications
 - [web-formats](https://github.com/gnorium/web-formats) - Structured data format builders
+- [web-security](https://github.com/gnorium/web-security) - Portable security utilities for web applications
 - [web-types](https://github.com/gnorium/web-types) - Shared web types and design tokens
