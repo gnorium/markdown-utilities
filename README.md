@@ -78,7 +78,7 @@ Contributions welcome! Please open an issue or submit a pull request.
 
 - [design-tokens](https://github.com/gnorium/design-tokens) - Universal design tokens based on Apple HIG
 - [embedded-swift-utilities](https://github.com/gnorium/embedded-swift-utilities) - Utility functions for Embedded Swift environments
-- [web-administrator](https://github.com/gnorium/web-administrator) - Web administration panel for applications
+- [web-admin](https://github.com/gnorium/web-admin) - Web administration panel for applications
 - [web-apis](https://github.com/gnorium/web-apis) - Web API implementations for Swift WebAssembly
 - [web-builders](https://github.com/gnorium/web-builders) - HTML, CSS, JS, and SVG DSL builders
 - [web-components](https://github.com/gnorium/web-components) - Reusable UI components for web applications
