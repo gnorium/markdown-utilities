@@ -2,7 +2,7 @@ import Foundation
 import Markdown
 
 public struct MarkdownRenderer {
-	/// Renders markdown content to HTML string
+	/// Renders markdown content to HTMLProtocol string
 	public static func render(_ markdown: String) -> String {
 		// Pre-process video syntax: @[Description | Attribution](/videos/file.mp4)
 		let processedMarkdown = preprocessVideos(markdown)
@@ -13,7 +13,7 @@ public struct MarkdownRenderer {
 		return visitor.html
 	}
 	
-	/// Converts @[caption](/path/to/video.mp4) to HTML figure with video
+	/// Converts @[caption](/path/to/video.mp4) to HTMLProtocol figure with video
 	private static func preprocessVideos(_ markdown: String) -> String {
 		// Pattern: @[Description | Attribution](/path/to/video.mp4)
 		let pattern = #"@\[([^\]]+)\]\(([^)]+)\)"#
@@ -61,7 +61,7 @@ public struct MarkdownRenderer {
 	}
 }
 
-/// Visitor that converts Markdown AST to HTML
+/// Visitor that converts Markdown AST to HTMLProtocol
 private struct HTMLVisitor: MarkupWalker {
 	var html = ""
 
@@ -186,7 +186,7 @@ private struct HTMLVisitor: MarkupWalker {
 		html += inlineHTML.rawHTML
 	}
 
-	// MARK: - HTML Escaping
+	// MARK: - HTMLProtocol Escaping
 
 	private func escapeHTML(_ string: String) -> String {
 		string
