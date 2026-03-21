@@ -67,9 +67,43 @@ private struct HTMLVisitor: MarkupWalker {
 
 	mutating func visitHeading(_ heading: Heading) {
 		let level = heading.level
-		html += "<h\(level)>"
-		descendInto(heading)
+		let text = heading.plainText
+
+		// Check for explicit {#custom-id} anchor
+		let id: String
+		let displayText: String
+		let anchorPattern = #"\s*\{#([^}]+)\}\s*$"#
+		if let regex = try? NSRegularExpression(pattern: anchorPattern),
+		   let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+		   let idRange = Range(match.range(at: 1), in: text),
+		   let fullRange = Range(match.range, in: text) {
+			id = String(text[idRange])
+			displayText = String(text[text.startIndex..<fullRange.lowerBound])
+		} else {
+			id = slugify(text)
+			displayText = text
+		}
+
+		html += "<h\(level) id=\"\(escapeAttribute(id))\">"
+		// If we extracted a custom id, render children normally but the text won't include the {#id}
+		if displayText != text {
+			html += escapeHTML(displayText)
+		} else {
+			descendInto(heading)
+		}
 		html += "</h\(level)>"
+	}
+
+	private func slugify(_ text: String) -> String {
+		let slug = text.lowercased()
+			.replacingOccurrences(of: " ", with: "-")
+			.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" }
+			.reduce(into: "") { $0.append(String($1)) }
+		
+		// Clean up consecutive hyphens and trim
+		return slug.split(separator: "-")
+			.compactMap { $0.isEmpty ? nil : String($0) }
+			.joined(separator: "-")
 	}
 
 	mutating func visitParagraph(_ paragraph: Paragraph) {
@@ -131,9 +165,15 @@ private struct HTMLVisitor: MarkupWalker {
 
 	mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
 		let language = codeBlock.language ?? "plaintext"
-		html += "<pre><code class=\"language-\(language)\">"
-		html += escapeHTML(codeBlock.code)
-		html += "</code></pre>"
+		if language == "mermaid" {
+			html += "<pre class=\"mermaid\">"
+			html += codeBlock.code
+			html += "</pre>"
+		} else {
+			html += "<pre><code class=\"language-\(language)\">"
+			html += escapeHTML(codeBlock.code)
+			html += "</code></pre>"
+		}
 	}
 
 	mutating func visitInlineCode(_ inlineCode: InlineCode) {
@@ -176,6 +216,62 @@ private struct HTMLVisitor: MarkupWalker {
 
 	mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
 		html += "<hr>"
+	}
+
+	mutating func visitStrikethrough(_ strikethrough: Strikethrough) {
+		html += "<del>"
+		descendInto(strikethrough)
+		html += "</del>"
+	}
+
+	mutating func visitTable(_ table: Table) {
+		html += "<!-- TABLE FOUND -->"
+		html += "<table>"
+		descendInto(table)
+		html += "</table>"
+	}
+
+	mutating func visitTableHead(_ tableHead: Table.Head) {
+		html += "<thead>"
+		descendInto(tableHead)
+		html += "</thead>"
+	}
+
+	mutating func visitTableBody(_ tableBody: Table.Body) {
+		html += "<tbody>"
+		descendInto(tableBody)
+		html += "</tbody>"
+	}
+
+	mutating func visitTableRow(_ tableRow: Table.Row) {
+		html += "<tr>"
+		descendInto(tableRow)
+		html += "</tr>"
+	}
+
+	mutating func visitTableCell(_ tableCell: Table.Cell) {
+		let tagName = tableCell.parent is Table.Head ? "th" : "td"
+		var style = ""
+		
+		var current: Markup? = tableCell.parent
+		while current != nil && !(current is Table) {
+			current = current?.parent
+		}
+		
+		if let table = current as? Table {
+			let columnIndex = tableCell.indexInParent
+			if columnIndex < table.columnAlignments.count, let alignment = table.columnAlignments[columnIndex] {
+				switch alignment {
+				case .left: style = " style=\"text-align: left;\""
+				case .center: style = " style=\"text-align: center;\""
+				case .right: style = " style=\"text-align: right;\""
+				}
+			}
+		}
+
+		html += "<\(tagName)\(style)>"
+		descendInto(tableCell)
+		html += "</\(tagName)>"
 	}
 
 	mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) {
