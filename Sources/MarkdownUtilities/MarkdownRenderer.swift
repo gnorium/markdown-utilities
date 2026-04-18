@@ -2,7 +2,7 @@ import Foundation
 import Markdown
 
 public struct MarkdownRenderer {
-	/// Renders markdown content to HTMLProtocol string
+	/// Renders markdown content to HTMLContent string
 	public static func render(_ markdown: String) -> String {
 		// Pre-process video syntax: @[Description | Attribution](/videos/file.mp4)
 		let processedMarkdown = preprocessVideos(markdown)
@@ -13,7 +13,7 @@ public struct MarkdownRenderer {
 		return visitor.html
 	}
 	
-	/// Converts @[caption](/path/to/video.mp4) to HTMLProtocol figure with video
+	/// Converts @[caption](/path/to/video.mp4) to HTMLContent figure with video
 	private static func preprocessVideos(_ markdown: String) -> String {
 		// Pattern: @[Description | Attribution](/path/to/video.mp4)
 		let pattern = #"@\[([^\]]+)\]\(([^)]+)\)"#
@@ -61,7 +61,7 @@ public struct MarkdownRenderer {
 	}
 }
 
-/// Visitor that converts Markdown AST to HTMLProtocol
+/// Visitor that converts Markdown AST to HTMLContent
 private struct HTMLVisitor: MarkupWalker {
 	var html = ""
 
@@ -165,13 +165,14 @@ private struct HTMLVisitor: MarkupWalker {
 
 	mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
 		let language = codeBlock.language ?? "plaintext"
+		let code = codeBlock.code.trimmingCharacters(in: .whitespacesAndNewlines)
 		if language == "mermaid" {
 			html += "<pre class=\"mermaid\">"
-			html += codeBlock.code
+			html += code
 			html += "</pre>"
 		} else {
 			html += "<pre><code class=\"language-\(language)\">"
-			html += escapeHTML(codeBlock.code)
+			html += escapeHTML(code)
 			html += "</code></pre>"
 		}
 	}
@@ -282,7 +283,7 @@ private struct HTMLVisitor: MarkupWalker {
 		html += inlineHTML.rawHTML
 	}
 
-	// MARK: - HTMLProtocol Escaping
+	// MARK: - HTMLContent Escaping
 
 	private func escapeHTML(_ string: String) -> String {
 		string
