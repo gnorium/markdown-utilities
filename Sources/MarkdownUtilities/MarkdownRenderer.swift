@@ -1,303 +1,322 @@
-import Foundation
-import Markdown
+#if SERVER
+  import Foundation
+  import Markdown
+#endif
 
 public struct MarkdownRenderer {
-	/// Renders markdown content to HTMLContent string
-	public static func render(_ markdown: String) -> String {
-		// Pre-process video syntax: @[Description | Attribution](/videos/file.mp4)
-		let processedMarkdown = preprocessVideos(markdown)
-		
-		let document = Document(parsing: processedMarkdown)
-		var visitor = HTMLVisitor()
-		visitor.visit(document)
-		return visitor.html
-	}
-	
-	/// Converts @[caption](/path/to/video.mp4) to HTMLContent figure with video
-	private static func preprocessVideos(_ markdown: String) -> String {
-		// Pattern: @[Description | Attribution](/path/to/video.mp4)
-		let pattern = #"@\[([^\]]+)\]\(([^)]+)\)"#
-		guard let regex = try? NSRegularExpression(pattern: pattern) else {
-			return markdown
-		}
-		
-		var result = markdown
-		let matches = regex.matches(in: markdown, range: NSRange(markdown.startIndex..., in: markdown))
-		
-		// Process in reverse to maintain string indices
-		for match in matches.reversed() {
-			guard let captionRange = Range(match.range(at: 1), in: markdown),
-				  let urlRange = Range(match.range(at: 2), in: markdown),
-				  let fullRange = Range(match.range, in: markdown) else {
-				continue
-			}
-			
-			let caption = String(markdown[captionRange])
-			let url = String(markdown[urlRange])
-			
-			// Parse "Description | Attribution"
-			let parts = caption.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-			
-			var figcaptionHTML: String
-			if parts.count == 2 {
-				figcaptionHTML = "\(parts[0])<br><i>\(parts[1])</i>"
-			} else {
-				figcaptionHTML = caption
-			}
-			
-			let videoHTML = """
-			<figure class="media-center">
-			  <video controls>
-			    <source src="\(url)" type="video/mp4">
-			  </video>
-			  <figcaption>\(figcaptionHTML)</figcaption>
-			</figure>
-			"""
-			
-			result.replaceSubrange(fullRange, with: videoHTML)
-		}
-		
-		return result
-	}
+  /// Renders markdown content to HTMLContent string
+  public static func render(_ markdown: String) -> String {
+    #if CLIENT
+      return markdown
+    #endif
+    #if SERVER
+      // Pre-process video syntax: @[Description | Attribution](/videos/file.mp4)
+      let processedMarkdown = preprocessVideos(markdown)
+      let document = Document(parsing: processedMarkdown)
+      var visitor = HTMLVisitor()
+      visitor.visit(document)
+      return visitor.html
+    #endif
+  }
+
+  #if SERVER
+    /// Converts @[caption](/path/to/video.mp4) to HTMLContent figure with video
+    private static func preprocessVideos(_ markdown: String) -> String {
+      // Pattern: @[Description | Attribution](/path/to/video.mp4)
+      let pattern = #"@\[([^\]]+)\]\(([^)]+)\)"#
+      guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return markdown
+      }
+
+      var result = markdown
+      let matches = regex.matches(
+        in: markdown, range: NSRange(markdown.startIndex..., in: markdown))
+
+      // Process in reverse to maintain string indices
+      for match in matches.reversed() {
+        guard let captionRange = Range(match.range(at: 1), in: markdown),
+          let urlRange = Range(match.range(at: 2), in: markdown),
+          let fullRange = Range(match.range, in: markdown)
+        else {
+          continue
+        }
+
+        let caption = String(markdown[captionRange])
+        let url = String(markdown[urlRange])
+
+        // Parse "Description | Attribution"
+        let parts = caption.split(separator: "|", maxSplits: 1).map {
+          $0.trimmingCharacters(in: .whitespaces)
+        }
+
+        var figcaptionHTML: String
+        if parts.count == 2 {
+          figcaptionHTML = "\(parts[0])<br><i>\(parts[1])</i>"
+        } else {
+          figcaptionHTML = caption
+        }
+
+        let videoHTML = """
+          <figure class="media-center">
+            <video controls>
+              <source src="\(url)" type="video/mp4">
+            </video>
+            <figcaption>\(figcaptionHTML)</figcaption>
+          </figure>
+          """
+
+        result.replaceSubrange(fullRange, with: videoHTML)
+      }
+
+      return result
+    }
+  #endif
 }
 
-/// Visitor that converts Markdown AST to HTMLContent
-private struct HTMLVisitor: MarkupWalker {
-	var html = ""
+#if SERVER
+  /// Visitor that converts Markdown AST to HTMLContent
+  private struct HTMLVisitor: MarkupWalker {
+    var html = ""
 
-	mutating func visitHeading(_ heading: Heading) {
-		let level = heading.level
-		let text = heading.plainText
+    mutating func visitHeading(_ heading: Heading) {
+      let level = heading.level
+      let text = heading.plainText
 
-		// Check for explicit {#custom-id} anchor
-		let id: String
-		let displayText: String
-		let anchorPattern = #"\s*\{#([^}]+)\}\s*$"#
-		if let regex = try? NSRegularExpression(pattern: anchorPattern),
-		   let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-		   let idRange = Range(match.range(at: 1), in: text),
-		   let fullRange = Range(match.range, in: text) {
-			id = String(text[idRange])
-			displayText = String(text[text.startIndex..<fullRange.lowerBound])
-		} else {
-			id = slugify(text)
-			displayText = text
-		}
+      // Check for explicit {#custom-id} anchor
+      let id: String
+      let displayText: String
+      let anchorPattern = #"\s*\{#([^}]+)\}\s*$"#
+      if let regex = try? NSRegularExpression(pattern: anchorPattern),
+        let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+        let idRange = Range(match.range(at: 1), in: text),
+        let fullRange = Range(match.range, in: text)
+      {
+        id = String(text[idRange])
+        displayText = String(text[text.startIndex..<fullRange.lowerBound])
+      } else {
+        id = slugify(text)
+        displayText = text
+      }
 
-		html += "<h\(level) id=\"\(escapeAttribute(id))\">"
-		// If we extracted a custom id, render children normally but the text won't include the {#id}
-		if displayText != text {
-			html += escapeHTML(displayText)
-		} else {
-			descendInto(heading)
-		}
-		html += "</h\(level)>"
-	}
+      html += "<h\(level) id=\"\(escapeAttribute(id))\">"
+      // If we extracted a custom id, render children normally but the text won't include the {#id}
+      if displayText != text {
+        html += escapeHTML(displayText)
+      } else {
+        descendInto(heading)
+      }
+      html += "</h\(level)>"
+    }
 
-	private func slugify(_ text: String) -> String {
-		let slug = text.lowercased()
-			.replacingOccurrences(of: " ", with: "-")
-			.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" }
-			.reduce(into: "") { $0.append(String($1)) }
-		
-		// Clean up consecutive hyphens and trim
-		return slug.split(separator: "-")
-			.compactMap { $0.isEmpty ? nil : String($0) }
-			.joined(separator: "-")
-	}
+    private func slugify(_ text: String) -> String {
+      let slug = text.lowercased()
+        .replacingOccurrences(of: " ", with: "-")
+        .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" }
+        .reduce(into: "") { $0.append(String($1)) }
 
-	mutating func visitParagraph(_ paragraph: Paragraph) {
-		html += "<p>"
-		descendInto(paragraph)
-		html += "</p>"
-	}
+      // Clean up consecutive hyphens and trim
+      return slug.split(separator: "-")
+        .compactMap { $0.isEmpty ? nil : String($0) }
+        .joined(separator: "-")
+    }
 
-	mutating func visitText(_ text: Text) {
-		html += escapeHTML(text.string)
-	}
+    mutating func visitParagraph(_ paragraph: Paragraph) {
+      html += "<p>"
+      descendInto(paragraph)
+      html += "</p>"
+    }
 
-	mutating func visitStrong(_ strong: Strong) {
-		html += "<strong>"
-		descendInto(strong)
-		html += "</strong>"
-	}
+    mutating func visitText(_ text: Text) {
+      html += escapeHTML(text.string)
+    }
 
-	mutating func visitEmphasis(_ emphasis: Emphasis) {
-		html += "<em>"
-		descendInto(emphasis)
-		html += "</em>"
-	}
+    mutating func visitStrong(_ strong: Strong) {
+      html += "<strong>"
+      descendInto(strong)
+      html += "</strong>"
+    }
 
-	mutating func visitLink(_ link: Link) {
-		html += "<a href=\"\(escapeAttribute(link.destination ?? ""))\">"
-		descendInto(link)
-		html += "</a>"
-	}
+    mutating func visitEmphasis(_ emphasis: Emphasis) {
+      html += "<em>"
+      descendInto(emphasis)
+      html += "</em>"
+    }
 
-	mutating func visitImage(_ image: Image) {
-		html += "<figure class=\"article-image\">"
-		html += "<img src=\"\(escapeAttribute(image.source ?? ""))\" "
+    mutating func visitLink(_ link: Link) {
+      html += "<a href=\"\(escapeAttribute(link.destination ?? ""))\">"
+      descendInto(link)
+      html += "</a>"
+    }
 
-		// Parse alt text as "Description | Attribution"
-		let altText = image.plainText
-		let parts = altText.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-		let description = parts.first ?? altText
-		let attribution = parts.count == 2 ? parts[1] : nil
-		
-		if !description.isEmpty {
-			html += "alt=\"\(escapeAttribute(description))\" "
-		}
-		html += "/>"
+    mutating func visitImage(_ image: Image) {
+      html += "<figure class=\"article-image\">"
+      html += "<img src=\"\(escapeAttribute(image.source ?? ""))\" "
 
-		// Build figcaption
-		if !description.isEmpty || attribution != nil {
-			html += "<figcaption>"
-			if !description.isEmpty {
-				html += escapeHTML(description)
-			}
-			if let attr = attribution {
-				html += "<br><i>\(escapeHTML(attr))</i>"
-			}
-			html += "</figcaption>"
-		}
-		html += "</figure>"
-	}
+      // Parse alt text as "Description | Attribution"
+      let altText = image.plainText
+      let parts = altText.split(separator: "|", maxSplits: 1).map {
+        $0.trimmingCharacters(in: .whitespaces)
+      }
+      let description = parts.first ?? altText
+      let attribution = parts.count == 2 ? parts[1] : nil
 
-	mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-		let language = codeBlock.language ?? "plaintext"
-		let code = codeBlock.code.trimmingCharacters(in: .whitespacesAndNewlines)
-		if language == "mermaid" {
-			html += "<pre class=\"mermaid\">"
-			html += code
-			html += "</pre>"
-		} else {
-			html += "<pre><code class=\"language-\(language)\">"
-			html += escapeHTML(code)
-			html += "</code></pre>"
-		}
-	}
+      if !description.isEmpty {
+        html += "alt=\"\(escapeAttribute(description))\" "
+      }
+      html += "/>"
 
-	mutating func visitInlineCode(_ inlineCode: InlineCode) {
-		html += "<code>"
-		html += escapeHTML(inlineCode.code)
-		html += "</code>"
-	}
+      // Build figcaption
+      if !description.isEmpty || attribution != nil {
+        html += "<figcaption>"
+        if !description.isEmpty {
+          html += escapeHTML(description)
+        }
+        if let attr = attribution {
+          html += "<br><i>\(escapeHTML(attr))</i>"
+        }
+        html += "</figcaption>"
+      }
+      html += "</figure>"
+    }
 
-	mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
-		html += "<ul>"
-		descendInto(unorderedList)
-		html += "</ul>"
-	}
+    mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
+      let language = codeBlock.language ?? "plaintext"
+      let code = codeBlock.code.trimmingCharacters(in: .whitespacesAndNewlines)
+      if language == "mermaid" {
+        html += "<pre class=\"mermaid\">"
+        html += code
+        html += "</pre>"
+      } else {
+        html += "<pre><code class=\"language-\(language)\">"
+        html += escapeHTML(code)
+        html += "</code></pre>"
+      }
+    }
 
-	mutating func visitOrderedList(_ orderedList: OrderedList) {
-		html += "<ol>"
-		descendInto(orderedList)
-		html += "</ol>"
-	}
+    mutating func visitInlineCode(_ inlineCode: InlineCode) {
+      html += "<code>"
+      html += escapeHTML(inlineCode.code)
+      html += "</code>"
+    }
 
-	mutating func visitListItem(_ listItem: ListItem) {
-		html += "<li>"
-		descendInto(listItem)
-		html += "</li>"
-	}
+    mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
+      html += "<ul>"
+      descendInto(unorderedList)
+      html += "</ul>"
+    }
 
-	mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
-		html += "<blockquote>"
-		descendInto(blockQuote)
-		html += "</blockquote>"
-	}
+    mutating func visitOrderedList(_ orderedList: OrderedList) {
+      html += "<ol>"
+      descendInto(orderedList)
+      html += "</ol>"
+    }
 
-	mutating func visitLineBreak(_ lineBreak: LineBreak) {
-		html += "<br>"
-	}
+    mutating func visitListItem(_ listItem: ListItem) {
+      html += "<li>"
+      descendInto(listItem)
+      html += "</li>"
+    }
 
-	mutating func visitSoftBreak(_ softBreak: SoftBreak) {
-		html += " "
-	}
+    mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
+      html += "<blockquote>"
+      descendInto(blockQuote)
+      html += "</blockquote>"
+    }
 
-	mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
-		html += "<hr>"
-	}
+    mutating func visitLineBreak(_ lineBreak: LineBreak) {
+      html += "<br>"
+    }
 
-	mutating func visitStrikethrough(_ strikethrough: Strikethrough) {
-		html += "<del>"
-		descendInto(strikethrough)
-		html += "</del>"
-	}
+    mutating func visitSoftBreak(_ softBreak: SoftBreak) {
+      html += "\n"
+    }
 
-	mutating func visitTable(_ table: Table) {
-		html += "<!-- TABLE FOUND -->"
-		html += "<table>"
-		descendInto(table)
-		html += "</table>"
-	}
+    mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
+      html += "<hr>"
+    }
 
-	mutating func visitTableHead(_ tableHead: Table.Head) {
-		html += "<thead>"
-		descendInto(tableHead)
-		html += "</thead>"
-	}
+    mutating func visitStrikethrough(_ strikethrough: Strikethrough) {
+      html += "<del>"
+      descendInto(strikethrough)
+      html += "</del>"
+    }
 
-	mutating func visitTableBody(_ tableBody: Table.Body) {
-		html += "<tbody>"
-		descendInto(tableBody)
-		html += "</tbody>"
-	}
+    mutating func visitTable(_ table: Table) {
+      html += "<!-- TABLE FOUND -->"
+      html += "<table>"
+      descendInto(table)
+      html += "</table>"
+    }
 
-	mutating func visitTableRow(_ tableRow: Table.Row) {
-		html += "<tr>"
-		descendInto(tableRow)
-		html += "</tr>"
-	}
+    mutating func visitTableHead(_ tableHead: Table.Head) {
+      html += "<thead>"
+      descendInto(tableHead)
+      html += "</thead>"
+    }
 
-	mutating func visitTableCell(_ tableCell: Table.Cell) {
-		let tagName = tableCell.parent is Table.Head ? "th" : "td"
-		var style = ""
-		
-		var current: Markup? = tableCell.parent
-		while current != nil && !(current is Table) {
-			current = current?.parent
-		}
-		
-		if let table = current as? Table {
-			let columnIndex = tableCell.indexInParent
-			if columnIndex < table.columnAlignments.count, let alignment = table.columnAlignments[columnIndex] {
-				switch alignment {
-				case .left: style = " style=\"text-align: left;\""
-				case .center: style = " style=\"text-align: center;\""
-				case .right: style = " style=\"text-align: right;\""
-				}
-			}
-		}
+    mutating func visitTableBody(_ tableBody: Table.Body) {
+      html += "<tbody>"
+      descendInto(tableBody)
+      html += "</tbody>"
+    }
 
-		html += "<\(tagName)\(style)>"
-		descendInto(tableCell)
-		html += "</\(tagName)>"
-	}
+    mutating func visitTableRow(_ tableRow: Table.Row) {
+      html += "<tr>"
+      descendInto(tableRow)
+      html += "</tr>"
+    }
 
-	mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) {
-		html += htmlBlock.rawHTML
-	}
+    mutating func visitTableCell(_ tableCell: Table.Cell) {
+      let tagName = tableCell.parent is Table.Head ? "th" : "td"
+      var style = ""
 
-	mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
-		html += inlineHTML.rawHTML
-	}
+      var current: Markup? = tableCell.parent
+      while current != nil && !(current is Table) {
+        current = current?.parent
+      }
 
-	// MARK: - HTMLContent Escaping
+      if let table = current as? Table {
+        let columnIndex = tableCell.indexInParent
+        if columnIndex < table.columnAlignments.count,
+          let alignment = table.columnAlignments[columnIndex]
+        {
+          switch alignment {
+          case .left: style = " style=\"text-align: left;\""
+          case .center: style = " style=\"text-align: center;\""
+          case .right: style = " style=\"text-align: right;\""
+          }
+        }
+      }
 
-	private func escapeHTML(_ string: String) -> String {
-		string
-			.replacingOccurrences(of: "&", with: "&amp;")
-			.replacingOccurrences(of: "<", with: "&lt;")
-			.replacingOccurrences(of: ">", with: "&gt;")
-			.replacingOccurrences(of: "\"", with: "&quot;")
-			.replacingOccurrences(of: "'", with: "&#39;")
-	}
+      html += "<\(tagName)\(style)>"
+      descendInto(tableCell)
+      html += "</\(tagName)>"
+    }
 
-	private func escapeAttribute(_ string: String) -> String {
-		string
-			.replacingOccurrences(of: "&", with: "&amp;")
-			.replacingOccurrences(of: "\"", with: "&quot;")
-			.replacingOccurrences(of: "'", with: "&#39;")
-	}
-}
+    mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) {
+      html += htmlBlock.rawHTML
+    }
+
+    mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
+      html += inlineHTML.rawHTML
+    }
+
+    // MARK: - HTMLContent Escaping
+
+    private func escapeHTML(_ string: String) -> String {
+      string
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+        .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
+    private func escapeAttribute(_ string: String) -> String {
+      string
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+        .replacingOccurrences(of: "'", with: "&#39;")
+    }
+  }
+#endif
