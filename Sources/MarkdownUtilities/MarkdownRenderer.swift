@@ -15,9 +15,7 @@ public struct MarkdownRenderer {
       let document = Document(parsing: processedMarkdown)
       var visitor = HTMLVisitor()
       visitor.visit(document)
-      let output = visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
-      // Strip newlines before closing tags to prevent ghost lines in pre-wrap
-      return output.replacingOccurrences(of: #"\n+(?=</)"#, with: "", options: .regularExpression)
+      return visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
     #endif
   }
 
@@ -107,7 +105,7 @@ public struct MarkdownRenderer {
       } else {
         descendInto(heading)
       }
-      html += "</h\(level)>"
+      html += "</h\(level)>\n"
     }
 
     private func slugify(_ text: String) -> String {
@@ -125,7 +123,7 @@ public struct MarkdownRenderer {
     mutating func visitParagraph(_ paragraph: Paragraph) {
       html += "<p>"
       descendInto(paragraph)
-      html += "</p>"
+      html += "</p>\n"
     }
 
     mutating func visitText(_ text: Text) {
@@ -178,7 +176,7 @@ public struct MarkdownRenderer {
         }
         html += "</figcaption>"
       }
-      html += "</figure>"
+      html += "</figure>\n"
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
@@ -202,27 +200,27 @@ public struct MarkdownRenderer {
     }
 
     mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
-      html += "<ul>"
+      html += "<ul>\n"
       descendInto(unorderedList)
-      html += "</ul>"
+      html += "</ul>\n"
     }
 
     mutating func visitOrderedList(_ orderedList: OrderedList) {
-      html += "<ol>"
+      html += "<ol>\n"
       descendInto(orderedList)
-      html += "</ol>"
+      html += "</ol>\n"
     }
 
     mutating func visitListItem(_ listItem: ListItem) {
       html += "<li>"
       descendInto(listItem)
-      html += "</li>"
+      html += "</li>\n"
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
-      html += "<blockquote>"
+      html += "<blockquote>\n"
       descendInto(blockQuote)
-      html += "</blockquote>"
+      html += "</blockquote>\n"
     }
 
     mutating func visitLineBreak(_ lineBreak: LineBreak) {
@@ -230,7 +228,7 @@ public struct MarkdownRenderer {
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) {
-      html += "\n"
+      html += "<br>"
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
