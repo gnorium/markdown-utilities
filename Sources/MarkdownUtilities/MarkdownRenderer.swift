@@ -15,7 +15,7 @@ public struct MarkdownRenderer {
       let document = Document(parsing: processedMarkdown)
       var visitor = HTMLVisitor()
       visitor.visit(document)
-      return visitor.html
+      return visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
     #endif
   }
 
