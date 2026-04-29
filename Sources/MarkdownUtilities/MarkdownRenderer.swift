@@ -77,6 +77,7 @@ public struct MarkdownRenderer {
   /// Visitor that converts Markdown AST to HTMLContent
   private struct HTMLVisitor: MarkupWalker {
     var html = ""
+    private var skipPrefix: String?
 
     mutating func visitHeading(_ heading: Heading) {
       let level = heading.level
@@ -127,7 +128,12 @@ public struct MarkdownRenderer {
     }
 
     mutating func visitText(_ text: Text) {
-      html += escapeHTML(text.string)
+      var s = text.string
+      if let prefix = skipPrefix, s.hasPrefix(prefix) {
+        s = String(s.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        skipPrefix = nil
+      }
+      html += escapeHTML(s)
     }
 
     mutating func visitStrong(_ strong: Strong) {
@@ -218,7 +224,40 @@ public struct MarkdownRenderer {
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
-      html += "<blockquote>\n"
+      var alertClass: String?
+      var icon: String?
+      var markerToRemove: String?
+
+      // Peek into first paragraph and text node to detect GFM markers
+      if let firstParagraph = blockQuote.child(at: 0) as? Paragraph,
+        let firstText = firstParagraph.child(at: 0) as? Text
+      {
+        let text = firstText.string
+        let types: [(marker: String, className: String, icon: String)] = [
+          ("[!TIP]", "markdown-alert-tip", "💡"),
+          ("[!NOTE]", "markdown-alert-note", "ℹ️"),
+          ("[!IMPORTANT]", "markdown-alert-important", "📢"),
+          ("[!WARNING]", "markdown-alert-warning", "⚠️"),
+          ("[!CAUTION]", "markdown-alert-caution", "🛑"),
+        ]
+        for t in types {
+          if text.hasPrefix(t.marker) {
+            alertClass = t.className
+            icon = t.icon
+            markerToRemove = t.marker
+            break
+          }
+        }
+      }
+
+      if let alertClass = alertClass, let icon = icon, let marker = markerToRemove {
+        html += "<blockquote class=\"markdown-alert \(alertClass)\">\n"
+        html += "<span class=\"markdown-alert-icon\">\(icon)</span>\n"
+        skipPrefix = marker
+      } else {
+        html += "<blockquote>\n"
+      }
+
       descendInto(blockQuote)
       html += "</blockquote>\n"
     }
