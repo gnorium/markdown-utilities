@@ -15,7 +15,9 @@ public struct MarkdownRenderer {
       let document = Document(parsing: processedMarkdown)
       var visitor = HTMLVisitor()
       visitor.visit(document)
-      return visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
+      let output = visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
+      // Strip newlines before closing tags to prevent ghost lines in pre-wrap
+      return output.replacingOccurrences(of: #"\n+(?=</)"#, with: "", options: .regularExpression)
     #endif
   }
 
