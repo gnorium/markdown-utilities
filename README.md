@@ -79,6 +79,7 @@ Contributions welcome! Please open an issue or submit a pull request.
 - [design-tokens](https://github.com/gnorium/design-tokens) - Universal design tokens based on Apple HIG
 - [diff-engine](https://github.com/gnorium/diff-engine) - Platform-agnostic character-level diff engine
 - [embedded-swift-utilities](https://github.com/gnorium/embedded-swift-utilities) - Utility functions for Embedded Swift environments
+- [iiif-core](https://github.com/gnorium/iiif-core) - IIIF Presentation API v3 types + deep zoom viewer
 - [admin-core](https://github.com/gnorium/admin-core) - Core admin functionalities for web applications
 - [web-apis](https://github.com/gnorium/web-apis) - Web API implementations for Swift WebAssembly
 - [web-builders](https://github.com/gnorium/web-builders) - HTML, CSS, JS, and SVG DSL builders
