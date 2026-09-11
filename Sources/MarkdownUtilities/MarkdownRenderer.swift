@@ -2,20 +2,26 @@
   import Foundation
   import Markdown
 #endif
+#if CLIENT
+  import EmbeddedSwiftUtilities
+#endif
 
 public struct MarkdownRenderer {
-  /// Renders markdown content to HTMLContent string
+  /// Renders markdown to an HTML fragment string.
+  ///
+  /// - SERVER: swift-markdown + media extensions
+  /// - CLIENT (WASM): lightweight CommonMark subset — streaming-safe for live SSE
   public static func render(_ markdown: String) -> String {
     #if CLIENT
-      return markdown
-    #endif
-    #if SERVER
-      // Pre-process video syntax: @[Description | Attribution](/videos/file.mp4)
-      let processedMarkdown = preprocessVideos(markdown)
+      return renderClient(markdown)
+    #elseif SERVER
+      let processedMarkdown = preserveHardLineBreaks(preprocessVideos(markdown))
       let document = Document(parsing: processedMarkdown)
       var visitor = HTMLVisitor()
       visitor.visit(document)
       return visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
+    #else
+      return markdown
     #endif
   }
 
@@ -70,8 +76,285 @@ public struct MarkdownRenderer {
 
       return result
     }
+
+    /// Proof/Sight transcripts are plain line-oriented text. CommonMark soft breaks
+    /// can collapse to spaces in some paths — force hard breaks outside fences.
+    private static func preserveHardLineBreaks(_ markdown: String) -> String {
+      var out = ""
+      var inFence = false
+      for line in markdown.components(separatedBy: "\n") {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("```") {
+          inFence.toggle()
+          out += line + "\n"
+          continue
+        }
+        if inFence || trimmed.isEmpty {
+          out += line + "\n"
+        } else if isMarkdownListItem(trimmed) {
+          // Hard-breaks glue the next line into the same paragraph and
+          // prevent `1.` / `-` lists from interrupting.
+          out += line + "\n"
+        } else {
+          out += line + "  \n"
+        }
+      }
+      return out
+    }
+
+    /// `1. item` / `- item` / `* item` / `+ item`
+    private static func isMarkdownListItem(_ trimmed: String) -> Bool {
+      if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
+        return true
+      }
+      var digits = 0
+      var i = trimmed.startIndex
+      while i < trimmed.endIndex, trimmed[i].isNumber {
+        digits += 1
+        if digits > 9 { return false }
+        i = trimmed.index(after: i)
+      }
+      guard digits > 0, i < trimmed.endIndex, trimmed[i] == "." else { return false }
+      let afterDot = trimmed.index(after: i)
+      return afterDot < trimmed.endIndex && trimmed[afterDot] == " "
+    }
   #endif
 }
+
+#if CLIENT
+  extension MarkdownRenderer {
+    /// Lightweight CommonMark subset for Embedded / WASM (no swift-markdown).
+    /// Streaming-safe: an unclosed `` ``` `` fence is rendered as an open code block.
+    private static func renderClient(_ markdown: String) -> String {
+      let normalized = stringReplace(markdown, "\r\n", "\n")
+      let lines = stringSplit(normalized, separator: "\n")
+      var html = ""
+      var i = 0
+      var inFence = false
+      var fenceLang = ""
+      var fenceBody: [String] = []
+
+      func flushParagraph(_ buf: inout [String]) {
+        guard !buf.isEmpty else { return }
+        html = stringJoin([html, "<p>"], separator: "")
+        for (idx, line) in buf.enumerated() {
+          if idx > 0 {
+            html = stringJoin([html, "<br>\n"], separator: "")
+          }
+          html = stringJoin([html, renderInlines(line)], separator: "")
+        }
+        html = stringJoin([html, "</p>\n"], separator: "")
+        buf = []
+      }
+
+      func flushFence() {
+        let code = stringJoin(fenceBody, separator: "\n")
+        let lang = stringIsEmpty(fenceLang) ? "plaintext" : fenceLang
+        html = stringJoin(
+          [
+            html,
+            "<pre><code class=\"language-",
+            escapeClientAttr(lang),
+            "\">",
+            escapeClientHTML(code),
+            "</code></pre>\n",
+          ],
+          separator: ""
+        )
+        inFence = false
+        fenceLang = ""
+        fenceBody = []
+      }
+
+      var paragraph: [String] = []
+
+      while i < lines.count {
+        let line = lines[i]
+        let trimmed = stringTrim(line)
+
+        if inFence {
+          if isFenceMarker(trimmed) {
+            flushFence()
+          } else {
+            fenceBody.append(line)
+          }
+          i += 1
+          continue
+        }
+
+        if isFenceMarker(trimmed) {
+          flushParagraph(&paragraph)
+          inFence = true
+          fenceLang = fenceLanguage(trimmed)
+          fenceBody = []
+          i += 1
+          continue
+        }
+
+        if stringIsEmpty(trimmed) {
+          flushParagraph(&paragraph)
+          i += 1
+          continue
+        }
+
+        if let heading = parseHeading(trimmed) {
+          flushParagraph(&paragraph)
+          html = stringJoin(
+            [
+              html,
+              "<h",
+              intToString(heading.level),
+              ">",
+              renderInlines(heading.text),
+              "</h",
+              intToString(heading.level),
+              ">\n",
+            ],
+            separator: ""
+          )
+          i += 1
+          continue
+        }
+
+        if stringStartsWith(trimmed, "- ") || stringStartsWith(trimmed, "* ") {
+          flushParagraph(&paragraph)
+          html = stringJoin([html, "<ul>\n"], separator: "")
+          while i < lines.count {
+            let itemLine = stringTrim(lines[i])
+            if stringStartsWith(itemLine, "- ") || stringStartsWith(itemLine, "* ") {
+              let text = stringSubstring(itemLine, from: 2)
+              html = stringJoin(
+                [html, "<li>", renderInlines(text), "</li>\n"],
+                separator: ""
+              )
+              i += 1
+            } else {
+              break
+            }
+          }
+          html = stringJoin([html, "</ul>\n"], separator: "")
+          continue
+        }
+
+        if let itemText = orderedListItemText(trimmed) {
+          flushParagraph(&paragraph)
+          html = stringJoin([html, "<ol>\n"], separator: "")
+          var text = itemText
+          while true {
+            html = stringJoin(
+              [html, "<li>", renderInlines(text), "</li>\n"],
+              separator: ""
+            )
+            i += 1
+            guard i < lines.count else { break }
+            let next = stringTrim(lines[i])
+            guard let more = orderedListItemText(next) else { break }
+            text = more
+          }
+          html = stringJoin([html, "</ol>\n"], separator: "")
+          continue
+        }
+
+        paragraph.append(line)
+        i += 1
+      }
+
+      if inFence {
+        // Streaming: still emit the open fence body as a code block.
+        flushFence()
+      }
+      flushParagraph(&paragraph)
+      return stringTrim(html)
+    }
+
+    private static func isFenceMarker(_ line: String) -> Bool {
+      stringStartsWith(line, "```")
+    }
+
+    private static func fenceLanguage(_ line: String) -> String {
+      stringTrim(stringSubstring(line, from: 3))
+    }
+
+    private static func parseHeading(_ line: String) -> (level: Int, text: String)? {
+      var level = 0
+      let utf8 = Array(line.utf8)
+      while level < utf8.count, utf8[level] == 35 /* # */, level < 6 {
+        level += 1
+      }
+      guard level > 0, level < utf8.count, utf8[level] == 32 else { return nil }
+      let text = stringTrim(stringSubstring(line, from: level + 1))
+      return (level, text)
+    }
+
+    /// `1. item` → `item`. Marker is 1–9 digits, then `. `.
+    private static func orderedListItemText(_ line: String) -> String? {
+      let utf8 = Array(line.utf8)
+      var i = 0
+      while i < utf8.count, utf8[i] >= 48, utf8[i] <= 57 {
+        i += 1
+        if i > 9 { return nil }
+      }
+      guard i > 0, i + 1 < utf8.count, utf8[i] == 46, utf8[i + 1] == 32 else { return nil }
+      return stringSubstring(line, from: i + 2)
+    }
+
+    private static func renderInlines(_ text: String) -> String {
+      var s = escapeClientHTML(text)
+      s = replaceDelimited(s, open: "`", close: "`", wrapOpen: "<code>", wrapClose: "</code>", escapeInner: false)
+      s = replaceDelimited(s, open: "**", close: "**", wrapOpen: "<strong>", wrapClose: "</strong>", escapeInner: false)
+      s = replaceDelimited(s, open: "__", close: "__", wrapOpen: "<strong>", wrapClose: "</strong>", escapeInner: false)
+      s = replaceDelimited(s, open: "*", close: "*", wrapOpen: "<em>", wrapClose: "</em>", escapeInner: false)
+      s = replaceDelimited(s, open: "_", close: "_", wrapOpen: "<em>", wrapClose: "</em>", escapeInner: false)
+      return s
+    }
+
+    private static func replaceDelimited(
+      _ input: String,
+      open: String,
+      close: String,
+      wrapOpen: String,
+      wrapClose: String,
+      escapeInner: Bool
+    ) -> String {
+      var result = ""
+      var remaining = input
+      while true {
+        guard let openIdx = stringIndexOf(remaining, open) else {
+          result = stringJoin([result, remaining], separator: "")
+          break
+        }
+        let before = stringSubstring(remaining, from: 0, to: openIdx)
+        let afterOpen = stringSubstring(remaining, from: openIdx + open.utf8.count)
+        guard let closeIdx = stringIndexOf(afterOpen, close) else {
+          result = stringJoin([result, remaining], separator: "")
+          break
+        }
+        let inner = stringSubstring(afterOpen, from: 0, to: closeIdx)
+        let after = stringSubstring(afterOpen, from: closeIdx + close.utf8.count)
+        let body = escapeInner ? escapeClientHTML(inner) : inner
+        result = stringJoin([result, before, wrapOpen, body, wrapClose], separator: "")
+        remaining = after
+      }
+      return result
+    }
+
+    private static func escapeClientHTML(_ string: String) -> String {
+      var s = stringReplace(string, "&", "&amp;")
+      s = stringReplace(s, "<", "&lt;")
+      s = stringReplace(s, ">", "&gt;")
+      s = stringReplace(s, "\"", "&quot;")
+      s = stringReplace(s, "'", "&#39;")
+      return s
+    }
+
+    private static func escapeClientAttr(_ string: String) -> String {
+      var s = stringReplace(string, "&", "&amp;")
+      s = stringReplace(s, "\"", "&quot;")
+      s = stringReplace(s, "'", "&#39;")
+      return s
+    }
+  }
+#endif
 
 #if SERVER
   /// Visitor that converts Markdown AST to HTMLContent
@@ -333,11 +616,16 @@ public struct MarkdownRenderer {
     }
 
     mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) {
-      html += htmlBlock.rawHTML
+      // Same policy as typical chat UIs (ChatGPT / react-markdown default):
+      // assistant markdown may *contain* angle-brackets, but they are never
+      // injected as live DOM. Fenced code blocks already escape via visitCodeBlock.
+      html += "<p>"
+      html += escapeHTML(htmlBlock.rawHTML.trimmingCharacters(in: .whitespacesAndNewlines))
+      html += "</p>\n"
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
-      html += inlineHTML.rawHTML
+      html += escapeHTML(inlineHTML.rawHTML)
     }
 
     // MARK: - HTMLContent Escaping
