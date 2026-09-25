@@ -76,14 +76,16 @@ Contributions welcome! Please open an issue or submit a pull request.
 
 ## Related Packages
 
+- [admin-core](https://github.com/gnorium/admin-core) - Core admin functionalities for web applications
+- [artifact-core](https://github.com/gnorium/artifact-core) - IIIF Presentation API v3 types + deep zoom viewer
 - [design-tokens](https://github.com/gnorium/design-tokens) - Universal design tokens based on Apple HIG
 - [diff-engine](https://github.com/gnorium/diff-engine) - Platform-agnostic character-level diff engine
 - [embedded-swift-utilities](https://github.com/gnorium/embedded-swift-utilities) - Utility functions for Embedded Swift environments
-- [artifact-core](https://github.com/gnorium/artifact-core) - IIIF Presentation API v3 types + deep zoom viewer
-- [admin-core](https://github.com/gnorium/admin-core) - Core admin functionalities for web applications
+- [tex-utilities](https://github.com/gnorium/tex-utilities) - TeX formula rendering with locally served KaTeX
 - [web-apis](https://github.com/gnorium/web-apis) - Web API implementations for Swift WebAssembly
 - [web-builders](https://github.com/gnorium/web-builders) - HTML, CSS, JS, and SVG DSL builders
 - [web-components](https://github.com/gnorium/web-components) - Reusable UI components for web applications
 - [web-formats](https://github.com/gnorium/web-formats) - Structured data format builders
 - [web-security](https://github.com/gnorium/web-security) - Portable security utilities for web applications
+- [web-tests](https://github.com/gnorium/web-tests) - Swift browser testing across Chrome and Safari
 - [web-types](https://github.com/gnorium/web-types) - Shared web types for web applications
