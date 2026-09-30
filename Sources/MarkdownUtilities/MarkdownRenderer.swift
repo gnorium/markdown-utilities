@@ -10,7 +10,7 @@ public struct MarkdownRenderer {
   /// Renders markdown to an HTML fragment string.
   ///
   /// - SERVER: swift-markdown + media extensions
-  /// - CLIENT (WASM): lightweight CommonMark subset — streaming-safe for live SSE
+  /// - CLIENT (WASM): lightweight CommonMark subset—streaming-safe for live SSE
   public static func render(_ markdown: String) -> String {
     #if CLIENT
       return renderClient(markdown)
@@ -78,7 +78,7 @@ public struct MarkdownRenderer {
     }
 
     /// Proof/Sight transcripts are plain line-oriented text. CommonMark soft breaks
-    /// can collapse to spaces in some paths — force hard breaks outside fences.
+    /// can collapse to spaces in some paths—force hard breaks outside fences.
     private static func preserveHardLineBreaks(_ markdown: String) -> String {
       var out = ""
       var inFence = false
