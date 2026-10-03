@@ -31,6 +31,7 @@ let package = Package(
         .define("CLIENT", .when(platforms: [.wasi])),
         .define("SERVER", .when(platforms: [.macOS, .linux, .windows])),
       ]
-    )
+    ),
+    .testTarget(name: "MarkdownUtilitiesTests", dependencies: ["MarkdownUtilities"])
   ]
 )

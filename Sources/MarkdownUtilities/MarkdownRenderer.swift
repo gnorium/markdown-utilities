@@ -299,43 +299,120 @@ public struct MarkdownRenderer {
     }
 
     private static func renderInlines(_ text: String) -> String {
-      var s = escapeClientHTML(text)
-      s = replaceDelimited(s, open: "`", close: "`", wrapOpen: "<code>", wrapClose: "</code>", escapeInner: false)
-      s = replaceDelimited(s, open: "**", close: "**", wrapOpen: "<strong>", wrapClose: "</strong>", escapeInner: false)
-      s = replaceDelimited(s, open: "__", close: "__", wrapOpen: "<strong>", wrapClose: "</strong>", escapeInner: false)
-      s = replaceDelimited(s, open: "*", close: "*", wrapOpen: "<em>", wrapClose: "</em>", escapeInner: false)
-      s = replaceDelimited(s, open: "_", close: "_", wrapOpen: "<em>", wrapClose: "</em>", escapeInner: false)
-      return s
-    }
-
-    private static func replaceDelimited(
-      _ input: String,
-      open: String,
-      close: String,
-      wrapOpen: String,
-      wrapClose: String,
-      escapeInner: Bool
-    ) -> String {
-      var result = ""
-      var remaining = input
-      while true {
-        guard let openIdx = stringIndexOf(remaining, open) else {
-          result = stringJoin([result, remaining], separator: "")
-          break
-        }
-        let before = stringSubstring(remaining, from: 0, to: openIdx)
-        let afterOpen = stringSubstring(remaining, from: openIdx + open.utf8.count)
-        guard let closeIdx = stringIndexOf(afterOpen, close) else {
-          result = stringJoin([result, remaining], separator: "")
-          break
-        }
-        let inner = stringSubstring(afterOpen, from: 0, to: closeIdx)
-        let after = stringSubstring(afterOpen, from: closeIdx + close.utf8.count)
-        let body = escapeInner ? escapeClientHTML(inner) : inner
-        result = stringJoin([result, before, wrapOpen, body, wrapClose], separator: "")
-        remaining = after
+      let bytes = Array(text.utf8)
+      func slice(_ start: Int, _ end: Int) -> String {
+        String(decoding: bytes[start..<end], as: UTF8.self)
       }
-      return result
+      func whitespace(_ byte: UInt8?) -> Bool {
+        guard let byte else { return true }
+        return byte == 32 || (byte >= 9 && byte <= 13)
+      }
+      func punctuation(_ byte: UInt8?) -> Bool {
+        guard let byte else { return false }
+        return (byte >= 33 && byte <= 47) || (byte >= 58 && byte <= 64)
+          || (byte >= 91 && byte <= 96) || (byte >= 123 && byte <= 126)
+      }
+      func flanking(_ start: Int, _ length: Int) -> (opens: Bool, closes: Bool) {
+        let before: UInt8? = start > 0 ? bytes[start - 1] : nil
+        let after: UInt8? = start + length < bytes.count ? bytes[start + length] : nil
+        let left = !whitespace(after) && (!punctuation(after) || whitespace(before) || punctuation(before))
+        let right = !whitespace(before) && (!punctuation(before) || whitespace(after) || punctuation(after))
+        if bytes[start] == 95 {
+          // CommonMark underscores cannot open or close inside identifiers.
+          return (left && (!right || punctuation(before)), right && (!left || punctuation(after)))
+        }
+        return (left, right)
+      }
+      var output = ""
+      var i = 0
+      while i < bytes.count {
+        let byte = bytes[i]
+        if byte == 92, i + 1 < bytes.count, punctuation(bytes[i + 1]) {
+          output += escapeClientHTML(slice(i + 1, i + 2)); i += 2; continue
+        }
+        if byte == 96 {
+          var length = 1
+          while i + length < bytes.count, bytes[i + length] == 96 { length += 1 }
+          var j = i + length
+          var closing: Int? = nil
+          while j < bytes.count {
+            if bytes[j] == 96 {
+              var run = 1
+              while j + run < bytes.count, bytes[j + run] == 96 { run += 1 }
+              if run == length { closing = j; break }
+              j += run
+            } else { j += 1 }
+          }
+          if let closing {
+            output += "<code>" + escapeClientHTML(slice(i + length, closing)) + "</code>"
+            i = closing + length; continue
+          }
+        }
+        if byte == 91 { // [label](destination), with balanced destination parentheses.
+          var endLabel = i + 1
+          while endLabel < bytes.count {
+            if bytes[endLabel] == 92 { endLabel += 2; continue }
+            if bytes[endLabel] == 93 { break }
+            endLabel += 1
+          }
+          if endLabel + 1 < bytes.count, bytes[endLabel + 1] == 40 {
+            var endURL = endLabel + 2
+            var depth = 1
+            while endURL < bytes.count {
+              if bytes[endURL] == 92 { endURL += 2; continue }
+              if bytes[endURL] == 40 { depth += 1 }
+              if bytes[endURL] == 41 { depth -= 1; if depth == 0 { break } }
+              endURL += 1
+            }
+            if depth == 0 {
+              let destination = slice(endLabel + 2, endURL)
+              let lower = stringLowercased(destination)
+              // No script/data URLs or control characters in generated links.
+              let safe = !Array(destination.utf8).contains { $0 <= 32 || $0 == 127 }
+                && (stringStartsWith(lower, "https://") || stringStartsWith(lower, "http://")
+                  || stringStartsWith(lower, "mailto:") || stringStartsWith(lower, "#")
+                  || (stringStartsWith(lower, "/") && !stringStartsWith(lower, "//")))
+              if safe {
+                output += "<a href=\"" + escapeClientAttr(destination) + "\">"
+                  + renderInlines(slice(i + 1, endLabel)) + "</a>"
+                i = endURL + 1; continue
+              }
+            }
+          }
+        }
+        if byte == 42 || byte == 95 {
+          let length = i + 1 < bytes.count && bytes[i + 1] == byte ? 2 : 1
+          if flanking(i, length).opens {
+            var j = i + length
+            var closing: Int? = nil
+            while j + length <= bytes.count {
+              // Inline code and escapes protect their literal delimiters.
+              if bytes[j] == 92 { j += 2; continue }
+              if bytes[j] == 96 {
+                var k = j + 1
+                while k < bytes.count, bytes[k] != 96 { k += 1 }
+                j = min(k + 1, bytes.count); continue
+              }
+              if bytes[j] == byte && (length == 1 || bytes[j + 1] == byte), flanking(j, length).closes {
+                closing = j; break
+              }
+              j += 1
+            }
+            if let closing {
+              let tag = length == 2 ? "strong" : "em"
+              output += "<" + tag + ">" + renderInlines(slice(i + length, closing)) + "</" + tag + ">"
+              i = closing + length; continue
+            }
+          }
+          output += escapeClientHTML(slice(i, i + length)); i += length; continue
+        }
+        // Copy complete UTF-8 sequences so multibyte text stays verbatim.
+        var length = 1
+        if byte >= 240 { length = 4 } else if byte >= 224 { length = 3 } else if byte >= 192 { length = 2 }
+        length = min(length, bytes.count - i)
+        output += escapeClientHTML(slice(i, i + length)); i += length
+      }
+      return output
     }
 
     private static func escapeClientHTML(_ string: String) -> String {
@@ -432,9 +509,14 @@ public struct MarkdownRenderer {
     }
 
     mutating func visitLink(_ link: Link) {
-      html += "<a href=\"\(escapeAttribute(link.destination ?? ""))\">"
+      let destination = link.destination ?? ""
+      let lower = destination.lowercased()
+      let safe = !destination.utf8.contains { $0 <= 32 || $0 == 127 }
+        && (lower.hasPrefix("https://") || lower.hasPrefix("http://") || lower.hasPrefix("mailto:")
+          || lower.hasPrefix("#") || (!destination.contains(":") && !lower.hasPrefix("//")))
+      if safe { html += "<a href=\"\(escapeAttribute(destination))\">" }
       descendInto(link)
-      html += "</a>"
+      if safe { html += "</a>" }
     }
 
     mutating func visitImage(_ image: Image) {
