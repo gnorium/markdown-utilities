@@ -562,7 +562,7 @@ public struct MarkdownRenderer {
         html += "<pre class=\"mermaid\">"
         html += code
         html += "</pre>"
-      } else if let codeBlock {
+      } else if let codeBlock = self.codeBlock {
         html += codeBlock(language, escapeHTML(code))
       } else {
         html += "<pre><code class=\"language-\(language)\">"
