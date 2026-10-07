@@ -11,13 +11,17 @@ public struct MarkdownRenderer {
   ///
   /// - SERVER: swift-markdown + media extensions
   /// - CLIENT (WASM): lightweight CommonMark subset—streaming-safe for live SSE
-  public static func render(_ markdown: String) -> String {
+  /// `codeBlock` writes a fence (its language and its escaped code) as the
+  /// page frames one; a bare `<pre><code class="language-…">` without it.
+  /// The client renders bare fences, framed on the page.
+  public static func render(_ markdown: String, codeBlock: ((String, String) -> String)? = nil) -> String {
     #if CLIENT
       return renderClient(markdown)
     #elseif SERVER
       let processedMarkdown = preserveHardLineBreaks(preprocessVideos(markdown))
       let document = Document(parsing: processedMarkdown)
       var visitor = HTMLVisitor()
+      visitor.codeBlock = codeBlock
       visitor.visit(document)
       return visitor.html.trimmingCharacters(in: .whitespacesAndNewlines)
     #else
@@ -437,6 +441,7 @@ public struct MarkdownRenderer {
   /// Visitor that converts Markdown AST to HTMLContent
   private struct HTMLVisitor: MarkupWalker {
     var html = ""
+    var codeBlock: ((String, String) -> String)?
     private var skipPrefix: String?
 
     mutating func visitHeading(_ heading: Heading) {
@@ -557,6 +562,8 @@ public struct MarkdownRenderer {
         html += "<pre class=\"mermaid\">"
         html += code
         html += "</pre>"
+      } else if let codeBlock {
+        html += codeBlock(language, escapeHTML(code))
       } else {
         html += "<pre><code class=\"language-\(language)\">"
         html += escapeHTML(code)
