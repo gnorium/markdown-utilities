@@ -30,6 +30,34 @@ public struct MarkdownRenderer {
   }
 
   #if SERVER
+    /// Markdown as the text it reads (user, 2026-10-11): what its syntax
+    /// says, not the syntax—emphasis, list and heading marks gone, a link
+    /// its text, code its code, an image its description—its white space
+    /// collapsed to single spaces on one line.
+    public static func plainText(_ markdown: String) -> String {
+      var reader = PlainTextReader()
+      reader.visit(Document(parsing: markdown))
+      return reader.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// The text a document's syntax holds, in order, a space between blocks.
+    private struct PlainTextReader: MarkupWalker {
+      var text = ""
+
+      mutating func defaultVisit(_ markup: any Markup) {
+        if markup is BlockMarkup, !text.isEmpty { text += " " }
+        descendInto(markup)
+      }
+      mutating func visitText(_ text: Text) { self.text += text.string }
+      mutating func visitInlineCode(_ code: InlineCode) { text += code.code }
+      mutating func visitCodeBlock(_ code: CodeBlock) { text += " " + code.code + " " }
+      mutating func visitSoftBreak(_ softBreak: SoftBreak) { text += " " }
+      mutating func visitLineBreak(_ lineBreak: LineBreak) { text += " " }
+      mutating func visitInlineHTML(_ html: InlineHTML) {}
+      mutating func visitHTMLBlock(_ html: HTMLBlock) {}
+      mutating func visitImage(_ image: Image) { text += image.plainText }
+    }
+
     /// Converts @[caption](/path/to/video.mp4) to HTMLContent figure with video
     private static func preprocessVideos(_ markdown: String) -> String {
       // Pattern: @[Description | Attribution](/path/to/video.mp4)
