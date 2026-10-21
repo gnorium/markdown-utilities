@@ -11,7 +11,7 @@ final class InlineRenderingTests: XCTestCase {
   }
   func testMarkdownStillRendersAndCodeIsLiteral() {
     let html = MarkdownRenderer.render("# Plan\n\n1. *Look* at **the title page** with `view_canvas` and `a*b_c__d`.\n2. _Check_ __the imprint__.")
-    XCTAssertTrue(html.contains("<h1"))
+    XCTAssertTrue(html.contains("<h2"))
     XCTAssertTrue(html.contains("<ol>"))
     XCTAssertTrue(html.contains("<em>Look</em>"))
     XCTAssertTrue(html.contains("<strong>the title page</strong>"))

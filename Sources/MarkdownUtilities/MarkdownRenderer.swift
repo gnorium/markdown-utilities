@@ -14,6 +14,11 @@ public struct MarkdownRenderer {
   /// `codeBlock` writes a fence (its language and its escaped code) as the
   /// page frames one; a bare `<pre><code class="language-…">` without it.
   /// The client renders bare fences, framed on the page.
+  ///
+  /// Headings render one level down (`#` is an `<h2>`, `######` stays an
+  /// `<h6>`): the text sits inside a page that owns its one `<h1>`. They
+  /// carry an id only where the text names one (`{#custom-id}`), as the
+  /// same text may stand on a page more than once.
   public static func render(_ markdown: String, codeBlock: ((String, String) -> String)? = nil) -> String {
     #if CLIENT
       return renderClient(markdown)
@@ -231,15 +236,16 @@ public struct MarkdownRenderer {
 
         if let heading = parseHeading(trimmed) {
           flushParagraph(&paragraph)
+          let level = min(heading.level + 1, 6)
           html = stringJoin(
             [
               html,
               "<h",
-              intToString(heading.level),
+              intToString(level),
               ">",
               renderInlines(heading.text),
               "</h",
-              intToString(heading.level),
+              intToString(level),
               ">\n",
             ],
             separator: ""
@@ -473,45 +479,23 @@ public struct MarkdownRenderer {
     private var skipPrefix: String?
 
     mutating func visitHeading(_ heading: Heading) {
-      let level = heading.level
+      let level = min(heading.level + 1, 6)
       let text = heading.plainText
 
-      // Check for explicit {#custom-id} anchor
-      let id: String
-      let displayText: String
+      // An id only where the text names one: `{#custom-id}`
       let anchorPattern = #"\s*\{#([^}]+)\}\s*$"#
       if let regex = try? NSRegularExpression(pattern: anchorPattern),
         let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
         let idRange = Range(match.range(at: 1), in: text),
         let fullRange = Range(match.range, in: text)
       {
-        id = String(text[idRange])
-        displayText = String(text[text.startIndex..<fullRange.lowerBound])
+        html += "<h\(level) id=\"\(escapeAttribute(String(text[idRange])))\">"
+        html += escapeHTML(String(text[text.startIndex..<fullRange.lowerBound]))
       } else {
-        id = slugify(text)
-        displayText = text
-      }
-
-      html += "<h\(level) id=\"\(escapeAttribute(id))\">"
-      // If we extracted a custom id, render children normally but the text won't include the {#id}
-      if displayText != text {
-        html += escapeHTML(displayText)
-      } else {
+        html += "<h\(level)>"
         descendInto(heading)
       }
       html += "</h\(level)>\n"
-    }
-
-    private func slugify(_ text: String) -> String {
-      let slug = text.lowercased()
-        .replacingOccurrences(of: " ", with: "-")
-        .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" }
-        .reduce(into: "") { $0.append(String($1)) }
-
-      // Clean up consecutive hyphens and trim
-      return slug.split(separator: "-")
-        .compactMap { $0.isEmpty ? nil : String($0) }
-        .joined(separator: "-")
     }
 
     mutating func visitParagraph(_ paragraph: Paragraph) {
